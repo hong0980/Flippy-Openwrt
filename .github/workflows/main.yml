@@ -39,7 +39,7 @@ jobs:
       run: |
         k=`curl -Ls github.com/hong0980/Actions-OpenWrt/releases | awk -F'"' '/download.*armvirt.*rootf/{print $2}' | head -1`
         u=`curl -Ls github.com/hong0980/Flippy-Openwrt/releases  | awk -F'"' '/download.*armvirt.*rootf/{print $2}' | head -1`
-        if [[ $k =~ armvirt ]] || [[ $u =~ armvirt ]; then
+        if [[ $k =~ armvirt || $u =~ armvirt ]]; then
           ([[ $k =~ armvirt ]] && wget -q github.com/$k) || ([[ $u =~ armvirt ]] && wget -q github.com/$u)
           sudo ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
           ( sudo apt update
