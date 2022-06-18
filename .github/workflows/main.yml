@@ -84,35 +84,41 @@ jobs:
       if: steps.organize.outputs.status != 'success' && !cancelled()
       run: |
         cd $REPO_FLODER
-        make -j$(($(nproc)+1)) || make -j1 V=s || { echo "编译失败"; exit 1; }
-        echo "::set-output name=status::success"
-        echo "======================="
-        echo "磁盘使用情况:"
-        echo "======================="
-        df -hT
-        echo "======================="
-        du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
-        du -h --max-depth=1 ./build_dir
-        du -h --max-depth=1 ./bin
-        ls bin/targets/*/*/
+        if make -j$(($(nproc)+1)) || make -j1 V=s; then
+          echo "::set-output name=status::success"
+          echo "======================="
+          echo "磁盘使用情况:"
+          echo "======================="
+          df -hT
+          echo "======================="
+          du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
+          du -h --max-depth=1 ./build_dir
+          du -h --max-depth=1 ./bin
+          ls bin/targets/*/*/
+        else
+          echo "编译失败"
+          exit 1
+        fi
 
     - name: 筛选
       id: firmware
       if: steps.organize.outputs.status == 'success' || steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        mkdir firmware
-        git clone -q https://github.com/unifreq/openwrt_packit opt/openwrt_packit
-        if [[ `ls *.tar.gz` ]]; then
-          echo firmware opt/openwrt_packit | xargs -n 1 cp -rv *.tar.gz
-        else
+        if [[ `ls *.tar.gz` || `ls bin/targets/*/*/*.tar.gz` ]]; then
+          mkdir firmware
+          echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)"  >>$GITHUB_ENV
+          echo "FIRMWARE=$GITHUB_WORKSPACE/firmware" >>$GITHUB_ENV
+          echo firmware opt/openwrt_packit | xargs -n 1 cp -rv *.tar.gz || \
           echo firmware opt/openwrt_packit | xargs -n 1 cp -rv $REPO_FLODER/bin/targets/*/*/*.tar.gz
+          git clone -q https://github.com/unifreq/openwrt_packit opt/openwrt_packit
+          echo "::set-output name=status::success"
+          Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
+          RANDOM=$$$(date +%s); rand=$[$RANDOM % ${#Emoji[@]}]
+          echo "EMOJI=${Emoji[$rand]}" >>$GITHUB_ENV
+        else
+          echo "没有找到tar.gz的固件"
+          exit 1
         fi
-        echo "::set-output name=status::success"
-        echo "FIRMWARE=$GITHUB_WORKSPACE/firmware" >>$GITHUB_ENV
-        echo "STRDATE=$(TZ=UTC-8 date +%Y-%m-%d)" >>$GITHUB_ENV
-        Emoji=("🎉" "🤞" "✨" "🎁" "🎈" "🎄" "🎨" "💋" "🍓" "🍕" "🍉" "💐" "🌴" "🚀" "🗽" "⛅" "🌈" "🔥" "⛄" "🐶" "🏅" "🦄" "🐤")
-        RANDOM=$$$(date +%s); rand=$[$RANDOM % ${#Emoji[@]}]
-        echo "EMOJI=${Emoji[$rand]}" >>$GITHUB_ENV
 
     - name: 打包
       if: steps.firmware.outputs.status == 'success' && env.BUILD_UNIFREQ == 'true' && !cancelled()
@@ -122,19 +128,17 @@ jobs:
         [[ -e files/luci-admin-status-index-html.patch ]] && \
         mv -fv $GITHUB_WORKSPACE/luci-admin-status-index-html.patch files
         rm files/luci-admin-status-index-html-02.patch
-        sed -i 's/lean & lienol/immortalwrt/' public_funcs
-        sed -i '{
-          s|WHOAMI=.*|WHOAMI="hong0980"|
-          s|OPENWRT_VER=.*|OPENWRT_VER="18.06-k5.4"|
-          s|KERNEL_VERSION=.*|KERNEL_VERSION='"$KERNEL_VERSION"'|g
-          s|KERNEL_PKG_HOME=.*|KERNEL_PKG_HOME='"$GITHUB_WORKSPACE/opt/kernel"'|
-        }' make.env
+        sed -i 's/lean & lienol/Immortalwrt/' public_funcs
         for x in `ls mk*.sh | grep -v "dockerimg"`; do
+          WHOAMI="hong0980"
+          OPENWRT_VER="18.06-k5.4"
+          KERNEL_VERSION="$KERNEL_VERSION"
+          KERNEL_PKG_HOME="$GITHUB_WORKSPACE/opt/kernel"
+          PLATFORM=`awk -F'=' '/PLATFORM=/{print $2}' $x`
           sed -i '{
             s|OP_ROOT_TGZ=.*|OP_ROOT_TGZ='"$(ls *.tar.gz)"'|
             s|TGT_IMG=.*|TGT_IMG="${WORK_DIR}/openwrt_${OPENWRT_VER}_${SOC}_${BOARD}_k${KERNEL_VERSION}${SUBVER}_$(date +%Y-%m-%d).img"|
           }' $x
-          PLATFORM=`awk -F= '/PLATFORM=/{print $2}' $x`
           [[ -e ../kernel/boot-${KERNEL_VERSION}.tar.gz ]] || \
           wget -q raw.githubusercontent.com/hong0980/kernel/master/boot-${KERNEL_VERSION}.tar.gz -P ../kernel
           [[ -e ../kernel/modules-${KERNEL_VERSION}.tar.gz ]] || \
